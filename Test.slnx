@@ -1,0 +1,5 @@
+﻿<Solution>
+  <Project Path="DiceBattle.csproj" />
+  <Project Path="DiceBattle.Editor.csproj" />
+  <Project Path="DiceBattle.Tests.csproj" />
+</Solution>

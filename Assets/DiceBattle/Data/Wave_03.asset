@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: Wave_03
+  m_EditorClassIdentifier: DiceBattle:DiceBattle.Data:WaveDefinition
+  waveIndex: 3
+  enemies:
+  - definition: {fileID: 11400000, guid: 4cc587cc979ba784fbba7b017b90cdcb, type: 2}
+    hpOverride: 30
+    damageOverride: 4
+    distanceOverride: 4
+    spawnLane: 0
+    spawnDelay: 0
+  - definition: {fileID: 11400000, guid: f7e0518a35c8664498c504f95d2152df, type: 2}
+    hpOverride: 45
+    damageOverride: 6
+    distanceOverride: 4
+    spawnLane: 2
+    spawnDelay: 0

@@ -1,0 +1,6 @@
+{
+  "name": "DiceBattle",
+  "rootNamespace": "DiceBattle",
+  "references": ["Unity.ugui", "Unity.InputSystem"],
+  "autoReferenced": true
+}

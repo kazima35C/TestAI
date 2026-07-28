@@ -9,7 +9,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 0}
+  m_Script: {fileID: 11500000, guid: b7e79c8b264c48abb329c206909e304a, type: 3}
   m_Name: Wave_10
   m_EditorClassIdentifier: DiceBattle:DiceBattle.Data:WaveDefinition
   waveIndex: 10

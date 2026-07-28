@@ -45,8 +45,26 @@ namespace DiceBattle.Core
 
         void Awake()
         {
-            if (balance == null || waves == null || waves.Count != 10) { Debug.LogError("Dice Battle setup is incomplete. Run Tools/Dice Battle/Build Complete Prototype."); enabled=false; return; }
-            if(canvas==null||hero==null||hero.Health==null||dice.Count!=5||enemyPrefab==null){Debug.LogError("Dice Battle prefab references are missing. Run Tools/Dice Battle/Build Complete Prototype.");enabled=false;return;}
+            if (balance == null || waves == null || waves.Count != 10)
+            {
+                Debug.LogError(
+                    $"Dice Battle data is invalid. Balance assigned: {balance != null}, " +
+                    $"wave count: {(waves == null ? 0 : waves.Count)}. Expected exactly 10 waves.",
+                    this);
+                enabled = false;
+                return;
+            }
+
+            if (canvas == null || hero == null || hero.Health == null || dice.Count != 5 || enemyPrefab == null)
+            {
+                Debug.LogError(
+                    $"Dice Battle scene references are invalid. Canvas: {canvas != null}, " +
+                    $"Hero: {hero != null}, Hero Health: {hero != null && hero.Health != null}, " +
+                    $"dice count: {dice.Count}, Enemy Prefab: {enemyPrefab != null}.",
+                    this);
+                enabled = false;
+                return;
+            }
             random = new DiceRandom(useDeterministicSeed, deterministicSeed);
             primaryButton.onClick.AddListener(OnPrimary);pauseButton.onClick.AddListener(TogglePause);
             resumeButton.onClick.AddListener(TogglePause);pauseRestartButton.onClick.AddListener(Restart);resultRestartButton.onClick.AddListener(Restart);

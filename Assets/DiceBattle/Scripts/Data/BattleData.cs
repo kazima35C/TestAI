@@ -39,26 +39,4 @@ namespace DiceBattle.Data
         public float spawnDelay;
     }
 
-    [CreateAssetMenu(menuName = "Dice Battle/Wave Definition")]
-    public sealed class WaveDefinition : ScriptableObject
-    {
-        [SerializeField] int waveIndex;
-        [SerializeField] List<EnemySpawnEntry> enemies = new();
-        public int WaveIndex => waveIndex;
-        public IReadOnlyList<EnemySpawnEntry> Enemies => enemies;
-#if UNITY_EDITOR
-        public void Configure(int index, List<EnemySpawnEntry> entries) { waveIndex = index; enemies = entries; }
-#endif
-    }
-
-    [CreateAssetMenu(menuName = "Dice Battle/Game Balance")]
-    public sealed class GameBalanceConfig : ScriptableObject
-    {
-        public int playerMaximumHp = 120;
-        public float heroAttackMultiplier = 1f;
-        public int rerollsPerTurn = 3;
-        public float diceRollDuration = .55f;
-        public float enemyActionGap = .3f;
-        public float waveIntroDuration = 1.1f;
-    }
 }

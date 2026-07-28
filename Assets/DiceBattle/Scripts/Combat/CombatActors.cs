@@ -3,12 +3,13 @@ using System.Collections;
 using DiceBattle.Core;
 using DiceBattle.Data;
 using DiceBattle.UI;
+using DG.Tweening;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace DiceBattle.Combat
 {
-    public sealed class PlayerHealth : MonoBehaviour
+    public class PlayerHealthImplementation : MonoBehaviour
     {
         public int Maximum { get; private set; }
         public int Current { get; private set; }
@@ -18,44 +19,75 @@ namespace DiceBattle.Combat
         public void Damage(int amount) { Current = Mathf.Max(0, Current - Mathf.Max(0, amount)); Changed?.Invoke(Current, Maximum); }
     }
 
-    public sealed class PlayerCombatController : MonoBehaviour
+    public class PlayerCombatControllerImplementation : MonoBehaviour
     {
-        RectTransform visual;
-        Image body;
-        public PlayerHealth Health { get; private set; }
+        [SerializeField] RectTransform visual;
+        [SerializeField] Image body;
+        Transform worldVisual;
+        [SerializeField] PlayerHealth health;
+        public PlayerHealth Health
+        {
+            get
+            {
+                if(!health)health=GetComponent<PlayerHealth>();
+                return health;
+            }
+        }
         public void Build(int hp)
         {
-            Health = gameObject.AddComponent<PlayerHealth>(); Health.Initialize(hp);
+            health = GetComponent<PlayerHealth>() ?? gameObject.AddComponent<PlayerHealth>(); health.Initialize(hp);
             var go = RuntimeUI.Panel(transform, "HeroVisual", new Color(.12f, .48f, .85f), new Vector2(.5f,.5f), new Vector2(.5f,.5f), new Vector2(-65,-80), new Vector2(65,80));
             visual = (RectTransform)go.transform; body = go.GetComponent<Image>();
             RuntimeUI.Label(go.transform, "Glyph", "◆", 80, TextAnchor.MiddleCenter, Color.white);
-            StartCoroutine(Breathe());
+            if(Application.isPlaying)StartBreathing();
         }
+        protected void Awake(){health=GetComponent<PlayerHealth>();}
+        protected void Start(){if(visual)StartBreathing();}
+        void StartBreathing(){DOTween.Kill("heroBreathe");visual.DOScale(1.035f,.8f).SetEase(Ease.InOutSine).SetLoops(-1,LoopType.Yoyo).SetId("heroBreathe").SetLink(gameObject);}
+        public void AttachWorldVisual(Transform value){worldVisual=value;if(body)body.enabled=false;worldVisual.DOScale(1.035f,.8f).SetEase(Ease.InOutSine).SetLoops(-1,LoopType.Yoyo).SetLink(worldVisual.gameObject);}
         IEnumerator Breathe()
         {
             while (true) { if (visual) visual.localScale = Vector3.one * (1f + Mathf.Sin(Time.unscaledTime * 2f) * .025f); yield return null; }
         }
         public IEnumerator Attack(RectTransform target)
         {
+            if(worldVisual){Vector3 p=worldVisual.localPosition;var s=DOTween.Sequence().SetLink(worldVisual.gameObject);s.Append(worldVisual.DOLocalMoveY(p.y+.55f,.09f)).Append(worldVisual.DOLocalMove(p,.12f).SetEase(Ease.OutBack));yield return s.WaitForCompletion();yield break;}
             Vector2 start = visual.anchoredPosition;
-            for (float t=0;t<1;t+=Time.deltaTime/.18f) { visual.anchoredPosition = Vector2.Lerp(start, start + Vector2.up*80, Mathf.Sin(t*Mathf.PI)); yield return null; }
-            visual.anchoredPosition = start;
+            var sequence=DOTween.Sequence().SetLink(gameObject);
+            sequence.Append(DOTween.To(()=>visual.anchoredPosition,x=>visual.anchoredPosition=x,start+Vector2.up*86,.09f).SetEase(Ease.OutQuad));
+            sequence.Append(DOTween.To(()=>visual.anchoredPosition,x=>visual.anchoredPosition=x,start,.12f).SetEase(Ease.OutBack));
+            sequence.Join(visual.DOPunchScale(Vector3.one*.18f,.18f,7,.6f));
+            yield return sequence.WaitForCompletion();
         }
         public IEnumerator Hit()
         {
             var original = body.color;
-            for(int i=0;i<5;i++){ body.color=i%2==0?Color.white:original; visual.anchoredPosition=UnityEngine.Random.insideUnitCircle*8; yield return new WaitForSeconds(.05f);}
-            visual.anchoredPosition=Vector2.zero; body.color=original;
+            var sequence=DOTween.Sequence().SetLink(gameObject);
+            sequence.Join((worldVisual?worldVisual:visual).DOShakePosition(.22f,worldVisual?.localScale.x*.12f??10f,16,80f,false,true));
+            sequence.Join(DOTween.To(()=>body.color,x=>body.color=x,Color.white,.07f).SetLoops(2,LoopType.Yoyo));
+            yield return sequence.WaitForCompletion(); body.color=original;
         }
         public IEnumerator Die()
         {
-            for(float t=0;t<1;t+=Time.deltaTime/.6f){ visual.localScale=Vector3.one*(1-t); visual.localEulerAngles=new Vector3(0,0,t*90); yield return null;}
+            var sequence=DOTween.Sequence().SetLink(gameObject);
+            var targetVisual=worldVisual?worldVisual:visual;
+            sequence.Join(targetVisual.DOScale(0,.45f).SetEase(Ease.InBack));
+            sequence.Join(targetVisual.DORotate(new Vector3(0,0,90),.45f).SetEase(Ease.InQuad));
+            yield return sequence.WaitForCompletion();
         }
     }
 
-    public sealed class EnemyController : MonoBehaviour
+    public class EnemyControllerImplementation : MonoBehaviour
     {
-        EnemyDefinition definition; Image body; Image selection; Text hpText; Text intentText; RectTransform visual;
+        [SerializeField] EnemyDefinition definition;
+        [SerializeField] Image body;
+        [SerializeField] Image selection;
+        [SerializeField] Text hpText;
+        [SerializeField] Text intentText;
+        [SerializeField] Text nameText;
+        [SerializeField] RectTransform visual;
+        [SerializeField] Button button;
+        Transform worldVisual;
         public int CurrentHp { get; private set; }
         public int MaximumHp { get; private set; }
         public int AttackDamage { get; private set; }
@@ -63,10 +95,11 @@ namespace DiceBattle.Combat
         public int MovementAmount => definition.MovementAmount;
         public int Countdown { get; private set; }
         public bool IsDead { get; private set; }
-        public bool IsArcher => definition.Behavior == EnemyBehaviorType.Archer;
+        public bool IsArcher => definition != null && definition.Behavior == EnemyBehaviorType.Archer;
         public bool IsTargetable => !IsDead;
         public EnemyDefinition Definition => definition;
         public RectTransform Visual => visual;
+        public void AttachWorldVisual(Transform value){worldVisual=value;if(body)body.enabled=false;}
         public event Action<EnemyController> Selected;
 
         public void Initialize(EnemySpawnEntry entry)
@@ -76,20 +109,44 @@ namespace DiceBattle.Combat
             AttackDamage = entry.damageOverride > 0 ? entry.damageOverride : definition.AttackDamage;
             CurrentDistance = entry.distanceOverride > 0 ? entry.distanceOverride : definition.StartingDistance;
             Countdown = definition.AttackCountdown;
-            BuildView();
+            if(body==null)BuildView();
+            body.color=definition.VisualColor;nameText.text=definition.DisplayName;visual.localScale=Vector3.one*definition.VisualScale;Refresh();
         }
+        protected void Awake(){if(!button)button=GetComponent<Button>();if(button)button.onClick.AddListener(HandleSelected);}
+        void HandleSelected()=>Selected?.Invoke((EnemyController)this);
         void BuildView()
         {
-            body = GetComponent<Image>() ?? gameObject.AddComponent<Image>(); var button = gameObject.AddComponent<Button>(); button.targetGraphic=body; button.onClick.AddListener(()=>Selected?.Invoke(this));
-            body.color=definition.VisualColor; visual=(RectTransform)transform; visual.localScale=Vector3.one*definition.VisualScale;
+            body = GetComponent<Image>() ?? gameObject.AddComponent<Image>(); button = GetComponent<Button>() ?? gameObject.AddComponent<Button>(); button.targetGraphic=body;
+            body.color=definition?definition.VisualColor:Color.red; visual=(RectTransform)transform;
             selection=RuntimeUI.Panel(transform,"Selection",new Color(.2f,1f,.8f,.35f),Vector2.zero,Vector2.one,new Vector2(-10,-10),new Vector2(10,10)).GetComponent<Image>();
             selection.transform.SetAsFirstSibling(); selection.enabled=false;
-            RuntimeUI.Label(transform,"Name",definition.DisplayName,22,TextAnchor.UpperCenter,Color.white);
-            hpText=RuntimeUI.Label(transform,"HP","",20,TextAnchor.LowerCenter,Color.white);
+            nameText=RuntimeUI.Label(transform,"Name",definition?definition.DisplayName:"Enemy",22,TextAnchor.UpperCenter,Color.white);
+            hpText=RuntimeUI.Label(transform,"HP","",30,TextAnchor.LowerCenter,Color.white);
             intentText=RuntimeUI.Label(transform,"Intent","",20,TextAnchor.MiddleCenter,Color.yellow);
             Refresh();
         }
-        public void SetSelected(bool value) { if(selection) selection.enabled=value; }
+#if UNITY_EDITOR
+        public void EditorBuildView(){BuildView();UnityEditor.EditorUtility.SetDirty(this);}
+#endif
+        public void SetSelected(bool value)
+        {
+            if(!selection)return;
+            DOTween.Kill(selection);
+            selection.enabled=value;
+            if(!value)return;
+            var color=selection.color;
+            color.a=.18f;
+            selection.color=color;
+            DOTween.To(
+                    ()=>selection.color,
+                    x=>selection.color=x,
+                    new Color(color.r,color.g,color.b,.42f),
+                    .65f)
+                .SetEase(Ease.InOutSine)
+                .SetLoops(-1,LoopType.Yoyo)
+                .SetTarget(selection)
+                .SetLink(gameObject);
+        }
         public void Damage(int amount) { if(IsDead)return; CurrentHp=Mathf.Max(0,CurrentHp-amount); Refresh(); }
         public void MarkDead(){ IsDead=true; SetSelected(false); }
         public void AdvanceCountdown(){ Countdown--; if(Countdown<=0) Countdown=definition.AttackCountdown; Refresh(); }
@@ -102,24 +159,37 @@ namespace DiceBattle.Combat
         }
         public IEnumerator Attack(RectTransform hero)
         {
+            if(worldVisual){Vector3 p=worldVisual.localPosition;var s=DOTween.Sequence().SetLink(worldVisual.gameObject);s.Append(worldVisual.DOLocalMoveY(p.y-.4f,.1f)).Append(worldVisual.DOLocalMove(p,.14f).SetEase(Ease.OutBack));yield return s.WaitForCompletion();yield break;}
             Vector2 start=visual.anchoredPosition;
-            for(float t=0;t<1;t+=Time.deltaTime/.28f){visual.anchoredPosition=Vector2.Lerp(start,start+Vector2.down*45,Mathf.Sin(t*Mathf.PI));yield return null;} visual.anchoredPosition=start;
+            var sequence=DOTween.Sequence().SetLink(gameObject);
+            sequence.Append(DOTween.To(()=>visual.anchoredPosition,x=>visual.anchoredPosition=x,start+Vector2.down*48,.1f).SetEase(Ease.OutQuad));
+            sequence.Append(DOTween.To(()=>visual.anchoredPosition,x=>visual.anchoredPosition=x,start,.14f).SetEase(Ease.OutBack));
+            yield return sequence.WaitForCompletion();
         }
         public IEnumerator Hit()
         {
             Color original=body.color;
-            for(int i=0;i<4;i++){body.color=i%2==0?Color.white:original;yield return new WaitForSeconds(.05f);} body.color=original;
+            var sequence=DOTween.Sequence().SetLink(gameObject);
+            sequence.Join((worldVisual?worldVisual:visual).DOShakePosition(.18f,worldVisual?.localScale.x*.12f??12f,18,80,false,true));
+            sequence.Join(DOTween.To(()=>body.color,x=>body.color=x,Color.white,.06f).SetLoops(2,LoopType.Yoyo));
+            yield return sequence.WaitForCompletion();body.color=original;
         }
         public IEnumerator Die()
         {
             MarkDead();
-            for(float t=0;t<1;t+=Time.deltaTime/.45f){visual.localScale=Vector3.one*definition.VisualScale*(1-t);body.color=new Color(body.color.r,body.color.g,body.color.b,1-t);yield return null;}
+            var sequence=DOTween.Sequence().SetLink(gameObject);
+            var targetVisual=worldVisual?worldVisual:visual;
+            sequence.Join(targetVisual.DOScale(0,.4f).SetEase(Ease.InBack));
+            sequence.Join(DOTween.To(()=>body.color,x=>body.color=x,new Color(body.color.r,body.color.g,body.color.b,0),.3f));
+            sequence.Join(targetVisual.DORotate(new Vector3(0,0,18),.4f));
+            yield return sequence.WaitForCompletion();
+            if(worldVisual)Destroy(worldVisual.gameObject);
             Destroy(gameObject);
         }
         void Refresh()
         {
             if(hpText) hpText.text=$"{CurrentHp}/{MaximumHp} HP";
-            if(intentText) intentText.text=IsArcher?$"RANGED {Countdown}":$"ATTACK {AttackDamage}";
+            if(intentText) intentText.text=definition==null?"INTENT":IsArcher?$"RANGED {Countdown}":$"ATTACK {AttackDamage}";
         }
     }
 

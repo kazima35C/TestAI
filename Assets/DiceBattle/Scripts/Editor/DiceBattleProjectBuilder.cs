@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using DiceBattle.Core;
+using DiceBattle.Combat;
 using DiceBattle.Data;
 using DiceBattle.UI;
 using UnityEditor;
@@ -46,10 +47,12 @@ namespace DiceBattle.Editor
             };
             CreatePlaceholderTexture();
             CreatePrefabs();
+            var combatEnemyPrefab=CreateCombatEnemyPrefab();
             var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
             var camera=new GameObject("Main Camera",typeof(Camera),typeof(AudioListener));camera.tag="MainCamera";camera.GetComponent<Camera>().clearFlags=CameraClearFlags.SolidColor;camera.GetComponent<Camera>().backgroundColor=new Color(.03f,.05f,.09f);camera.transform.position=new Vector3(0,0,-10);
             new GameObject("EventSystem",typeof(EventSystem),typeof(InputSystemUIInputModule));
-            var root=new GameObject("DiceBattleGame");var controller=root.AddComponent<DiceBattleGameController>();controller.EditorConfigure(balance,waves);EditorUtility.SetDirty(controller);
+            var root=new GameObject("DiceBattleGame");var controller=root.AddComponent<DiceBattleGameController>();controller.EditorConfigure(balance,waves,combatEnemyPrefab);controller.EditorBuildInterface();EditorUtility.SetDirty(controller);
+            PrefabUtility.SaveAsPrefabAssetAndConnect(root,Root+"/Prefabs/CombatUI.prefab",InteractionMode.AutomatedAction);
             EditorSceneManager.SaveScene(scene,ScenePath);
             var buildScenes=new List<EditorBuildSettingsScene>();
             foreach(var existing in EditorBuildSettings.scenes)if(existing.path!=ScenePath)buildScenes.Add(existing);
@@ -90,6 +93,16 @@ namespace DiceBattle.Editor
             Prefab("Enemy_Grunt",new Color(.78f,.18f,.2f),"G");Prefab("Enemy_Runner",new Color(1f,.42f,.08f),"R");
             Prefab("Enemy_Tank",new Color(.25f,.29f,.38f),"T");Prefab("Enemy_Archer",new Color(.52f,.22f,.72f),"A");
             Prefab("DiceUI",Color.white,"●");Prefab("FloatingDamageText",Color.clear,"-10");
+        }
+        static EnemyController CreateCombatEnemyPrefab()
+        {
+            string path=Root+"/Prefabs/EnemyCombatant.prefab";
+            var go=new GameObject("EnemyCombatant",typeof(RectTransform),typeof(Image));
+            ((RectTransform)go.transform).sizeDelta=new Vector2(220,210);
+            var controller=go.AddComponent<EnemyController>();controller.EditorBuildView();
+            var prefab=PrefabUtility.SaveAsPrefabAsset(go,path);
+            Object.DestroyImmediate(go);
+            return prefab.GetComponent<EnemyController>();
         }
         static void Prefab(string name,Color color,string glyph)
         {

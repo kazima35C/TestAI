@@ -3,6 +3,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using DG.Tweening;
 using UnityEngine.UI;
 
 namespace DiceBattle.UI
@@ -58,9 +59,13 @@ namespace DiceBattle.UI
         }
         IEnumerator Animate()
         {
-            var rt = (RectTransform)transform; var start = rt.anchoredPosition;
-            for (float t = 0; t < 1f; t += Time.unscaledDeltaTime / .8f)
-            { rt.anchoredPosition = start + Vector2.up * (100 * t); transform.localScale = Vector3.one * (1f + .35f * Mathf.Sin(t * Mathf.PI)); yield return null; }
+            var rt = (RectTransform)transform; var start = rt.anchoredPosition; var text=GetComponent<Text>();
+            transform.localScale=Vector3.one*.5f;
+            var sequence=DOTween.Sequence().SetUpdate(true).SetLink(gameObject);
+            sequence.Join(DOTween.To(()=>rt.anchoredPosition,x=>rt.anchoredPosition=x,start+Vector2.up*110,.7f).SetEase(Ease.OutCubic));
+            sequence.Join(transform.DOScale(1.35f,.2f).SetEase(Ease.OutBack));
+            sequence.Append(DOTween.To(()=>text.color,x=>text.color=x,new Color(text.color.r,text.color.g,text.color.b,0),.2f));
+            yield return sequence.WaitForCompletion();
             Destroy(gameObject);
         }
     }

@@ -8,6 +8,7 @@ using DiceBattle.UI;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using DG.Tweening;
 
 namespace DiceBattle.Core
 {
@@ -25,25 +26,32 @@ namespace DiceBattle.Core
         readonly EnemyTargetingController targeting = new();
         readonly GameStatisticsTracker statistics = new();
         readonly List<EnemyController> enemies = new();
-        readonly List<DiceView> dice = new();
+        [SerializeField] List<DiceView> dice = new();
         IDiceRandom random;
-        PlayerCombatController hero;
-        Canvas canvas;
-        RectTransform battlefield, enemyRoot, heroRoot;
-        Text waveText, enemyCountText, playerHpText, previewText, rerollText, primaryText, waveBanner;
-        Button primaryButton, pauseButton;
-        GameObject pauseOverlay, resultOverlay, bannerPanel;
-        ScreenShakeController shake;
+        [Header("Generated scene UI")]
+        [SerializeField] PlayerCombatController hero;
+        [SerializeField] Canvas canvas;
+        [SerializeField] RectTransform battlefield, enemyRoot, heroRoot;
+        [SerializeField] Text waveText, enemyCountText, playerHpText, previewText, rerollText, primaryText, waveBanner, resultTitleText, resultDetailsText;
+        [SerializeField] Button primaryButton, pauseButton, resumeButton, pauseRestartButton, resultRestartButton;
+        [SerializeField] GameObject pauseOverlay, resultOverlay, bannerPanel;
+        [SerializeField] ScreenShakeController shake;
+        [SerializeField] EnemyController enemyPrefab;
         int waveIndex = -1, rerolls;
         bool hasInitialRoll;
+        bool skipNextPrimaryReadyAnimation;
         DiceCombinationResult result;
         BattleState stateBeforePause;
 
         void Awake()
         {
             if (balance == null || waves == null || waves.Count != 10) { Debug.LogError("Dice Battle setup is incomplete. Run Tools/Dice Battle/Build Complete Prototype."); enabled=false; return; }
+            if(canvas==null||hero==null||hero.Health==null||dice.Count!=5||enemyPrefab==null){Debug.LogError("Dice Battle prefab references are missing. Run Tools/Dice Battle/Build Complete Prototype.");enabled=false;return;}
             random = new DiceRandom(useDeterministicSeed, deterministicSeed);
-            BuildInterface();
+            primaryButton.onClick.AddListener(OnPrimary);pauseButton.onClick.AddListener(TogglePause);
+            resumeButton.onClick.AddListener(TogglePause);pauseRestartButton.onClick.AddListener(Restart);resultRestartButton.onClick.AddListener(Restart);
+            foreach(var die in dice)die.Clicked+=OnDieClicked;
+            hero.Health.Initialize(balance.playerMaximumHp);hero.Health.Changed+=OnHeroHealthChanged;OnHeroHealthChanged(hero.Health.Current,hero.Health.Maximum);
             state.Changed += _ => RefreshControls();
         }
         IEnumerator Start()
@@ -57,21 +65,22 @@ namespace DiceBattle.Core
         {
             RuntimeUI.EnsureEventSystem();
             var canvasGo=new GameObject("DiceBattleCanvas",typeof(Canvas),typeof(CanvasScaler),typeof(GraphicRaycaster));
+            canvasGo.transform.SetParent(transform,false);
             canvas=canvasGo.GetComponent<Canvas>(); canvas.renderMode=RenderMode.ScreenSpaceOverlay; canvas.sortingOrder=1;
             var scaler=canvasGo.GetComponent<CanvasScaler>();scaler.uiScaleMode=CanvasScaler.ScaleMode.ScaleWithScreenSize;scaler.referenceResolution=new Vector2(1080,1920);scaler.matchWidthOrHeight=.5f;
             var safe=RuntimeUI.Panel(canvas.transform,"SafeArea",new Color(.035f,.055f,.10f),Vector2.zero,Vector2.one,Vector2.zero,Vector2.zero).transform;
             var top=RuntimeUI.Panel(safe,"TopHUD",new Color(.06f,.1f,.18f,.98f),new Vector2(0, .91f),Vector2.one,Vector2.zero,Vector2.zero).transform;
             waveText=CreateAnchoredLabel(top,"Wave","Wave 1/10",32,new Vector2(0,.5f),new Vector2(.27f,1));
             enemyCountText=CreateAnchoredLabel(top,"Enemies","Enemies: 0",26,new Vector2(.27f,.5f),new Vector2(.55f,1));
-            playerHpText=CreateAnchoredLabel(top,"HP","HP 120/120",26,new Vector2(.55f,.5f),new Vector2(.82f,1));
+            playerHpText=CreateAnchoredLabel(top,"HP","HP 120/120",39,new Vector2(.55f,.5f),new Vector2(.82f,1));
             var pauseBox=RuntimeUI.Panel(top,"PauseBox",Color.clear,new Vector2(.84f,.12f),new Vector2(.98f,.88f),Vector2.zero,Vector2.zero);
-            pauseButton=RuntimeUI.Button(pauseBox.transform,"Pause","II",new Color(.2f,.3f,.48f),TogglePause);
+            pauseButton=RuntimeUI.Button(pauseBox.transform,"Pause","II",new Color(.2f,.3f,.48f),null);
 
             battlefield=(RectTransform)RuntimeUI.Panel(safe,"Battlefield",new Color(.07f,.12f,.2f),new Vector2(.025f,.39f),new Vector2(.975f,.91f),Vector2.zero,Vector2.zero).transform;
             shake=battlefield.gameObject.AddComponent<ScreenShakeController>();
             enemyRoot=(RectTransform)RuntimeUI.Panel(battlefield,"Enemies",Color.clear,new Vector2(.05f,.43f),new Vector2(.95f,.98f),Vector2.zero,Vector2.zero).transform;
             heroRoot=(RectTransform)RuntimeUI.Panel(battlefield,"Hero",Color.clear,new Vector2(.34f,.02f),new Vector2(.66f,.42f),Vector2.zero,Vector2.zero).transform;
-            hero=heroRoot.gameObject.AddComponent<PlayerCombatController>();hero.Build(balance.playerMaximumHp);hero.Health.Changed+=OnHeroHealthChanged;OnHeroHealthChanged(hero.Health.Current,hero.Health.Maximum);
+            hero=heroRoot.gameObject.AddComponent<PlayerCombatController>();hero.Build(balance.playerMaximumHp);
 
             var preview=RuntimeUI.Panel(safe,"DamagePreview",new Color(.08f,.16f,.25f),new Vector2(.04f,.285f),new Vector2(.96f,.385f),Vector2.zero,Vector2.zero).transform;
             previewText=RuntimeUI.Label(preview,"Preview","ROLL THE DICE",42,TextAnchor.MiddleCenter,Color.white);
@@ -80,12 +89,12 @@ namespace DiceBattle.Core
             for(int i=0;i<5;i++)
             {
                 var holder=RuntimeUI.Panel(diceRow,$"Die{i+1}",Color.white,new Vector2(i/5f+.012f,.05f),new Vector2((i+1)/5f-.012f,.95f),Vector2.zero,Vector2.zero);
-                var view=holder.AddComponent<DiceView>();view.Build();view.Clicked+=OnDieClicked;dice.Add(view);
+                var view=holder.AddComponent<DiceView>();view.Build();dice.Add(view);
             }
             var rerollBox=RuntimeUI.Panel(safe,"RerollInfo",new Color(.12f,.18f,.28f),new Vector2(.04f,.075f),new Vector2(.43f,.155f),Vector2.zero,Vector2.zero).transform;
             rerollText=RuntimeUI.Label(rerollBox,"RerollCount","3 REROLLS LEFT",30,TextAnchor.MiddleCenter,Color.white);
             var primaryBox=RuntimeUI.Panel(safe,"PrimaryBox",Color.clear,new Vector2(.47f,.055f),new Vector2(.96f,.16f),Vector2.zero,Vector2.zero).transform;
-            primaryButton=RuntimeUI.Button(primaryBox,"Primary","ROLL",new Color(.12f,.64f,.45f),OnPrimary);
+            primaryButton=RuntimeUI.Button(primaryBox,"Primary","ROLL",new Color(.12f,.64f,.45f),null);
             primaryText=primaryButton.GetComponentInChildren<Text>();
             BuildOverlays(safe);
         }
@@ -103,10 +112,14 @@ namespace DiceBattle.Core
             pauseOverlay=RuntimeUI.Panel(safe,"PauseOverlay",new Color(0,0,0,.88f),Vector2.zero,Vector2.one,Vector2.zero,Vector2.zero);pauseOverlay.SetActive(false);
             CreateAnchoredLabel(pauseOverlay.transform,"Title","PAUSED",72,new Vector2(.15f,.62f),new Vector2(.85f,.78f));
             var resume=RuntimeUI.Panel(pauseOverlay.transform,"ResumeBox",Color.clear,new Vector2(.2f,.47f),new Vector2(.8f,.57f),Vector2.zero,Vector2.zero);
-            RuntimeUI.Button(resume.transform,"Resume","RESUME",new Color(.12f,.64f,.45f),TogglePause);
+            resumeButton=RuntimeUI.Button(resume.transform,"Resume","RESUME",new Color(.12f,.64f,.45f),null);
             var restart=RuntimeUI.Panel(pauseOverlay.transform,"RestartBox",Color.clear,new Vector2(.2f,.34f),new Vector2(.8f,.44f),Vector2.zero,Vector2.zero);
-            RuntimeUI.Button(restart.transform,"Restart","RESTART LEVEL",new Color(.65f,.25f,.25f),Restart);
+            pauseRestartButton=RuntimeUI.Button(restart.transform,"Restart","RESTART LEVEL",new Color(.65f,.25f,.25f),null);
             resultOverlay=RuntimeUI.Panel(safe,"ResultOverlay",new Color(.02f,.04f,.09f,.97f),Vector2.zero,Vector2.one,Vector2.zero,Vector2.zero);resultOverlay.SetActive(false);
+            resultTitleText=CreateAnchoredLabel(resultOverlay.transform,"ResultTitle","LEVEL COMPLETE",72,new Vector2(.1f,.62f),new Vector2(.9f,.78f));
+            resultDetailsText=CreateAnchoredLabel(resultOverlay.transform,"Details","",38,new Vector2(.12f,.38f),new Vector2(.88f,.62f));
+            var resultBox=RuntimeUI.Panel(resultOverlay.transform,"ResultRestart",Color.clear,new Vector2(.2f,.22f),new Vector2(.8f,.32f),Vector2.zero,Vector2.zero);
+            resultRestartButton=RuntimeUI.Button(resultBox.transform,"Restart","RESTART",new Color(.12f,.64f,.45f),null);
         }
 
         IEnumerator StartNextWave()
@@ -123,8 +136,11 @@ namespace DiceBattle.Core
 
         void SpawnEnemy(EnemySpawnEntry entry)
         {
-            var go=RuntimeUI.Panel(enemyRoot,$"{entry.definition.DisplayName}_{enemies.Count+1}",entry.definition.VisualColor,new Vector2(entry.spawnLane/3f+.035f,.12f),new Vector2((entry.spawnLane+1)/3f-.035f,.88f),Vector2.zero,Vector2.zero);
-            var enemy=go.AddComponent<EnemyController>();enemy.Initialize(entry);enemy.Selected+=e=>{if(state.Is(BattleState.PlayerDecision)||state.Is(BattleState.WaitingForInitialRoll))targeting.Select(e);};enemies.Add(enemy);
+            var enemy=Instantiate(enemyPrefab,enemyRoot);var go=enemy.gameObject;go.name=$"{entry.definition.DisplayName}_{enemies.Count+1}";
+            var rt=(RectTransform)go.transform;rt.anchorMin=new Vector2(entry.spawnLane/3f+.035f,.12f);rt.anchorMax=new Vector2((entry.spawnLane+1)/3f-.035f,.88f);rt.offsetMin=Vector2.zero;rt.offsetMax=Vector2.zero;
+            enemy.Initialize(entry);enemy.Selected+=e=>{if(state.Is(BattleState.PlayerDecision)||state.Is(BattleState.WaitingForInitialRoll))targeting.Select(e);};enemies.Add(enemy);
+            go.transform.localScale=Vector3.zero;
+            go.transform.DOScale(entry.definition.VisualScale,.28f).SetEase(Ease.OutBack).SetLink(go);
         }
         void BeginPlayerTurn()
         {
@@ -156,6 +172,7 @@ namespace DiceBattle.Core
         }
         IEnumerator RollSingleDie(DiceView die)
         {
+            skipNextPrimaryReadyAnimation=true;
             state.Set(BattleState.RollingDice);
             rerolls--;
             float elapsed=0;
@@ -207,7 +224,17 @@ namespace DiceBattle.Core
             var text=go.GetComponent<Text>();text.font=RuntimeUI.Font;text.alignment=TextAnchor.MiddleCenter;
             go.GetComponent<FloatingDamageText>().Show(parent,$"-{damage}",new Color(1f,.82f,.2f),scale);
         }
-        IEnumerator FadeBanner(float duration){var group=bannerPanel.GetComponent<CanvasGroup>();if(group==null)group=bannerPanel.AddComponent<CanvasGroup>();for(float t=0;t<duration;t+=Time.unscaledDeltaTime){group.alpha=Mathf.Sin((t/duration)*Mathf.PI);yield return null;}group.alpha=1;}
+        IEnumerator FadeBanner(float duration)
+        {
+            var group=bannerPanel.GetComponent<CanvasGroup>();if(group==null)group=bannerPanel.AddComponent<CanvasGroup>();
+            group.alpha=0;bannerPanel.transform.localScale=Vector3.one*.78f;
+            var sequence=DOTween.Sequence().SetUpdate(true).SetLink(bannerPanel);
+            sequence.Append(DOTween.To(()=>group.alpha,x=>group.alpha=x,1,.16f));
+            sequence.Join(bannerPanel.transform.DOScale(1,.22f).SetEase(Ease.OutBack));
+            sequence.AppendInterval(Mathf.Max(.15f,duration-.42f));
+            sequence.Append(DOTween.To(()=>group.alpha,x=>group.alpha=x,0,.2f));
+            yield return sequence.WaitForCompletion();group.alpha=1;
+        }
         void OnHeroHealthChanged(int current,int max){if(playerHpText)playerHpText.text=$"HP {current}/{max}";}
         void UpdateHud(){waveText.text=$"Wave {waveIndex+1}/10";enemyCountText.text=$"Enemies: {enemies.Count(e=>e!=null&&!e.IsDead)}";}
         void RefreshControls()
@@ -215,6 +242,10 @@ namespace DiceBattle.Core
             bool decision=state.Is(BattleState.PlayerDecision), initial=state.Is(BattleState.WaitingForInitialRoll);
             foreach(var die in dice)die.SetInteractable(decision);
             primaryButton.interactable=decision||initial;primaryText.text=initial?"ROLL":decision?"ATTACK":"WAIT";
+            primaryButton.transform.DOKill();
+            primaryButton.transform.localScale=Vector3.one;
+            if(skipNextPrimaryReadyAnimation&&decision)skipNextPrimaryReadyAnimation=false;
+            else if(decision||initial)primaryButton.transform.DOPunchScale(Vector3.one*.08f,.22f,6,.5f).SetUpdate(true).SetLink(primaryButton.gameObject);
             rerollText.text=$"{rerolls} REROLLS LEFT\nTAP A DIE TO REROLL";
             pauseButton.interactable=!state.Is(BattleState.Victory)&&!state.Is(BattleState.Defeat);
         }
@@ -229,16 +260,19 @@ namespace DiceBattle.Core
         string DisplayCombination(DiceCombinationType type)=>System.Text.RegularExpressions.Regex.Replace(type.ToString(),"([a-z])([A-Z])","$1 $2").Replace("Of A","of a");
         void ShowResult(string title,string details)
         {
-            resultOverlay.SetActive(true);CreateAnchoredLabel(resultOverlay.transform,"ResultTitle",title,72,new Vector2(.1f,.62f),new Vector2(.9f,.78f));
-            CreateAnchoredLabel(resultOverlay.transform,"Details",details,38,new Vector2(.12f,.38f),new Vector2(.88f,.62f));
-            var box=RuntimeUI.Panel(resultOverlay.transform,"ResultRestart",Color.clear,new Vector2(.2f,.22f),new Vector2(.8f,.32f),Vector2.zero,Vector2.zero);
-            RuntimeUI.Button(box.transform,"Restart","RESTART",new Color(.12f,.64f,.45f),Restart);
+            resultTitleText.text=title;resultDetailsText.text=details;resultOverlay.SetActive(true);
         }
         void Restart(){Time.timeScale=1f;SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);}
         void ClearEnemies(){foreach(var enemy in enemies)if(enemy)Destroy(enemy.gameObject);enemies.Clear();}
 
 #if UNITY_EDITOR
-        public void EditorConfigure(GameBalanceConfig config,List<WaveDefinition> definitions){balance=config;waves=definitions;}
+        public void EditorConfigure(GameBalanceConfig config,List<WaveDefinition> definitions,EnemyController generatedEnemyPrefab){balance=config;waves=definitions;enemyPrefab=generatedEnemyPrefab;}
+        public void EditorBuildInterface()
+        {
+            dice.Clear();
+            BuildInterface();
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
 #endif
     }
 }

@@ -1,5 +1,6 @@
 ﻿<Solution>
   <Project Path="DiceBattle.csproj" />
+  <Project Path="Assembly-CSharp-firstpass.csproj" />
   <Project Path="DiceBattle.Editor.csproj" />
   <Project Path="DiceBattle.Tests.csproj" />
 </Solution>
